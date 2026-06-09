@@ -306,7 +306,16 @@ addToLibrary({
 
         var ptr = mmapAlloc(length);
 
-        NODEFS.stream_ops.read(stream, HEAP8, ptr, length, position);
+        // node's fs.readSync caps a single read at 2^31-1 bytes, so read the
+        // file in <=1GiB chunks. Without this, mmapping any file >2GB (e.g. a
+        // large GGUF model under MEMORY64) throws ERR_OUT_OF_RANGE.
+        var NBW_CHUNK = 0x40000000;
+        for (var done = 0; done < length;) {
+          var want = Math.min(NBW_CHUNK, length - done);
+          var got = NODEFS.stream_ops.read(stream, HEAP8, ptr + done, want, position + done);
+          if (!got) break;
+          done += got;
+        }
         return { ptr, allocated: true };
       },
       msync(stream, buffer, offset, length, mmapFlags) {
